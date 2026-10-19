@@ -3,6 +3,24 @@ import Foundation
 /// RFC 4648 Base32 decoding, lenient about case, whitespace, dashes and padding
 /// (secrets are often shown as "abcd efgh ijkl ..." by websites).
 public enum Base32 {
+    public static func encode(_ data: Data) -> String {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+        var output = ""
+        var buffer: UInt32 = 0
+        var bitCount = 0
+        for byte in data {
+            buffer = (buffer << 8) | UInt32(byte)
+            bitCount += 8
+            while bitCount >= 5 {
+                bitCount -= 5
+                output.append(alphabet[Int((buffer >> UInt32(bitCount)) & 31)])
+            }
+            buffer &= (1 << UInt32(bitCount)) - 1
+        }
+        if bitCount > 0 { output.append(alphabet[Int((buffer << UInt32(5 - bitCount)) & 31)]) }
+        return output
+    }
+
     private static let table: [Character: UInt8] = {
         var table: [Character: UInt8] = [:]
         for (i, c) in "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".enumerated() {

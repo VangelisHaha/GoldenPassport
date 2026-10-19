@@ -4,10 +4,18 @@ BUILD_ROOT ?= $(HOME)/Library/Caches/GoldenPassport-build
 SWIFT = xcrun swift
 SWIFT_FLAGS = --scratch-path "$(BUILD_ROOT)/swiftpm"
 
-.PHONY: test dev release beta run-dev clean
+.PHONY: test test-native dev release beta run-dev clean
 
 test:
-	$(SWIFT) test $(SWIFT_FLAGS)
+	@if xcrun --sdk macosx --show-sdk-platform-path >/dev/null 2>&1 && xcrun swift --version | grep -Eq 'Swift version ([6-9]|[1-9][0-9])\.'; then \
+		$(SWIFT) test $(SWIFT_FLAGS); \
+	else \
+		echo "当前工具链不支持上游 Swift Testing，运行原生兼容性验收测试。"; \
+		BUILD_ROOT="$(BUILD_ROOT)" bash scripts/test-native.sh; \
+	fi
+
+test-native:
+	BUILD_ROOT="$(BUILD_ROOT)" bash scripts/test-native.sh
 
 dev:
 	BUILD_ROOT="$(BUILD_ROOT)" scripts/build-app.sh dev

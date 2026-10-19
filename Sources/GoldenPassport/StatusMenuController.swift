@@ -145,9 +145,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     }
 
     private func sectionHeader(_ title: String) -> NSMenuItem {
+        #if compiler(>=5.9)
         if #available(macOS 14.0, *) {
             return NSMenuItem.sectionHeader(title: title)
         }
+        #endif
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.isEnabled = false
         return item

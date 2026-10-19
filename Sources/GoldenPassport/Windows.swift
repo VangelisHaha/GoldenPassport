@@ -67,32 +67,68 @@ struct AddAccountView: View {
     @State private var name = ""
     @State private var nameEdited = false
     @State private var error: String?
+    @State private var captureInProgress = false
+    @State private var migration: GoogleAuthMigration?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Form {
-                TextField("OTPAuth URL：", text: $url, prompt: Text("otpauth://totp/user@host?secret=...&issuer=..."))
+                TextField("密钥或导入链接：", text: $url, prompt: Text("粘贴密钥、otpauth:// 或迁移链接"))
                     .onChange(of: url) { newValue in
                         error = nil
+                        migration = nil
+                        if GoogleAuthMigration.isMigrationURL(newValue) {
+                            do {
+                                migration = try GoogleAuthMigration(string: newValue)
+                                if !nameEdited { name = migration?.entries.first?.name ?? "" }
+                            } catch {
+                                self.error = error.localizedDescription
+                            }
+                            return
+                        }
                         if !nameEdited {
                             name = (try? OTPAuthURL(string: newValue))?.suggestedName ?? ""
                         }
                     }
-                TextField("标识：", text: Binding(get: { name }, set: {
+                if migration == nil || migration?.entries.count == 1 {
+                    TextField("标识：", text: Binding(get: { name }, set: {
                     name = $0
                     nameEdited = true
                     error = nil
-                }), prompt: Text("用于在菜单中识别此账号"))
+                    }), prompt: Text("用于在菜单中识别此账号"))
+                }
+            }
+            if let migration {
+                Text("迁移包包含 \(migration.entries.count) 个账户，同名账户会跳过。")
+                    .font(.caption)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(migration.entries.indices, id: \.self) { index in
+                            Text(migration.entries[index].name)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 120)
+                if migration.batchSize > 1 {
+                    Text("这是第 \(migration.batchIndex + 1) / \(migration.batchSize) 批，请依次导入其余迁移二维码。")
+                        .font(.caption)
+                }
+            } else {
+                Text("直接粘贴密钥时，请填写标识；默认使用 SHA1、6 位验证码、30 秒刷新。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             if let error {
                 Text(error).foregroundStyle(.red).font(.callout)
             }
             HStack {
                 Button("从二维码图片识别...", action: pickQRCode)
+                Button("截图识别...", action: captureQRCode)
                 Spacer()
                 Button("取消", action: onCancel).keyboardShortcut(.cancelAction)
-                Button("添加", action: add).keyboardShortcut(.defaultAction)
+                Button(migration == nil ? String(localized: "添加") : String(localized: "导入"), action: add)
+                    .keyboardShortcut(.defaultAction)
             }
+            .disabled(captureInProgress)
         }
         .padding(20)
         .frame(width: 560)
@@ -100,7 +136,22 @@ struct AddAccountView: View {
 
     private func add() {
         do {
-            try store.add(name: name, url: url)
+            if GoogleAuthMigration.isMigrationURL(url) {
+                var entries = try GoogleAuthMigration(string: url).entries
+                if entries.count == 1 {
+                    let editedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !editedName.isEmpty else { throw AccountStoreError.emptyName }
+                    entries[0].name = editedName
+                }
+                let added = try store.importAccounts(entries)
+                let skipped = entries.count - added
+                onAdded()
+                showAlert(String(localized: "成功导入 \(added) 条记录"),
+                          informative: skipped > 0 ? String(localized: "\(skipped) 条因标识已存在而跳过。") : nil)
+                return
+            }
+            let normalizedURL = try OTPAuthInput.normalizedURL(url, name: name)
+            try store.add(name: name, url: normalizedURL)
             onAdded()
         } catch {
             self.error = error.localizedDescription
@@ -113,21 +164,25 @@ struct AddAccountView: View {
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let fileURL = panel.url else { return }
         guard let found = QRCodeReader.otpAuthURLs(in: fileURL).first else {
-            error = String(localized: "图片中没有找到 otpauth:// 二维码。")
+            error = String(localized: "图片中没有找到验证器或迁移二维码。")
             return
         }
         url = found
     }
-}
 
-enum QRCodeReader {
-    static func otpAuthURLs(in fileURL: URL) -> [String] {
-        guard let image = CIImage(contentsOf: fileURL),
-              let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil,
-                                        options: [CIDetectorAccuracy: CIDetectorAccuracyHigh]) else { return [] }
-        return detector.features(in: image)
-            .compactMap { ($0 as? CIQRCodeFeature)?.messageString }
-            .filter { $0.lowercased().hasPrefix("otpauth://") }
+    private func captureQRCode() {
+        guard !captureInProgress else { return }
+        error = nil
+        captureInProgress = true
+        ScreenQRCodeCapture.capture { result in
+            captureInProgress = false
+            switch result {
+            case .success(let found):
+                if let found { url = found }
+            case .failure(let failure):
+                error = failure.localizedDescription
+            }
+        }
     }
 }
 

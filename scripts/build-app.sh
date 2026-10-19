@@ -2,13 +2,13 @@
 # Assembles GoldenPassport.app from the Swift package.
 #   scripts/build-app.sh dev       isolated build: own bundle id, data dir, port; hotkeys off
 #   scripts/build-app.sh release   drop-in replacement for the installed app
-# ARCHS="arm64 x86_64" builds a universal binary (default: arm64).
+# ARCHS="arm64 x86_64" builds a universal binary (default: host architecture).
 set -euo pipefail
 
 VARIANT="${1:-dev}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_ROOT="${BUILD_ROOT:-$HOME/Library/Caches/GoldenPassport-build}"
-ARCHS="${ARCHS:-arm64}"
+ARCHS="${ARCHS:-$(uname -m)}"
 VERSION="$(cat "$ROOT/VERSION")"
 BUILD_NUMBER="$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo 1)"
 
@@ -25,8 +25,19 @@ esac
 ARCH_FLAGS=()
 for arch in $ARCHS; do ARCH_FLAGS+=(--arch "$arch"); done
 SCRATCH="$BUILD_ROOT/swiftpm"
-xcrun swift build -c release --package-path "$ROOT" --scratch-path "$SCRATCH" "${ARCH_FLAGS[@]}"
-BIN_DIR="$(xcrun swift build -c release --package-path "$ROOT" --scratch-path "$SCRATCH" "${ARCH_FLAGS[@]}" --show-bin-path)"
+if xcrun --sdk macosx --show-sdk-platform-path >/dev/null 2>&1; then
+  xcrun swift build -c release --package-path "$ROOT" --scratch-path "$SCRATCH" "${ARCH_FLAGS[@]}"
+  BIN_DIR="$(xcrun swift build -c release --package-path "$ROOT" --scratch-path "$SCRATCH" "${ARCH_FLAGS[@]}" --show-bin-path)"
+else
+  source "$ROOT/scripts/native-build.sh"
+  BIN_DIR="$BUILD_ROOT/native"
+  BINARIES=()
+  for arch in $ARCHS; do
+    build_native_app "$arch" "$BIN_DIR/$arch" "$ROOT"
+    BINARIES+=("$BIN_DIR/$arch/GoldenPassport")
+  done
+  lipo -create "${BINARIES[@]}" -output "$BIN_DIR/GoldenPassport"
+fi
 
 APP="$BUILD_ROOT/$VARIANT/$APP_NAME.app"
 rm -rf "$APP"

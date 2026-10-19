@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:5.8
 import PackageDescription
 
 let package = Package(
@@ -9,5 +9,5 @@ let package = Package(
         .executableTarget(name: "GoldenPassport", dependencies: ["GoldenPassportCore"]),
         .testTarget(name: "GoldenPassportCoreTests", dependencies: ["GoldenPassportCore"]),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageVersions: [.v5]
 )

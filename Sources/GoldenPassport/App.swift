@@ -83,11 +83,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 func activateApp() {
+    #if compiler(>=5.9)
     if #available(macOS 14.0, *) {
         NSApp.activate()
     } else {
         NSApp.activate(ignoringOtherApps: true)
     }
+    #else
+    NSApp.activate(ignoringOtherApps: true)
+    #endif
 }
 
 func showAlert(_ message: String, informative: String? = nil, style: NSAlert.Style = .informational) {
